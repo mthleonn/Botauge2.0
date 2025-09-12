@@ -835,6 +835,10 @@ def main():
         def index():
             return 'Bot Auge Traders está rodando!'
         
+        @app.route('/health')
+        def health():
+            return 'OK'
+        
         # Configura webhook
         application.run_webhook(
             listen="0.0.0.0",
@@ -843,8 +847,28 @@ def main():
             webhook_url=f"{WEBHOOK_URL}/{BOT_TOKEN}"
         )
     else:
-        # Modo polling para desenvolvimento
+        # Modo polling para desenvolvimento - Railway também pode usar polling
         logger.info("Iniciando bot em modo polling...")
+        
+        # Adiciona endpoint básico para Railway
+        @app.route('/')
+        def index():
+            return 'Bot Auge Traders está rodando em modo polling!'
+        
+        @app.route('/health')
+        def health():
+            return 'OK'
+        
+        # Inicia Flask em thread separada para Railway
+        import threading
+        def run_flask():
+            app.run(host="0.0.0.0", port=PORT)
+        
+        flask_thread = threading.Thread(target=run_flask)
+        flask_thread.daemon = True
+        flask_thread.start()
+        
+        # Inicia polling
         application.run_polling()
 
 if __name__ == '__main__':
