@@ -4,6 +4,7 @@
 Bot Auge Traders - Sistema de Automação para Grupos de Trading
 Versão: 1.0.0
 Data: Janeiro 2024
+Última atualização: 2025-01-16 15:30 - Logs detalhados adicionados
 """
 
 import os
@@ -26,6 +27,7 @@ from telegram.ext import (
 from telegram.constants import ParseMode
 from dotenv import load_dotenv
 from flask import Flask, request
+from missed_messages_checker import MissedMessagesChecker
 
 # Carrega variáveis de ambiente
 load_dotenv()
@@ -46,13 +48,17 @@ GRUPO_PRINCIPAL_ID = int(os.getenv('GRUPO_PRINCIPAL_ID', 0))
 GRUPO_DUVIDAS_ID = int(os.getenv('GRUPO_DUVIDAS_ID', 0))
 TIMEZONE = pytz.timezone('America/Sao_Paulo')
 
-# Debug das variáveis de ambiente
+# Debug das variáveis de ambiente - VERSÃO ATUALIZADA 2025-01-16 15:35
+logger.info("="*60)
+logger.info("🚀 BOT AUGE TRADERS INICIANDO - VERSÃO ATUALIZADA")
+logger.info("="*60)
 logger.info(f"BOT_TOKEN: {'*' * 10 if BOT_TOKEN else 'NÃO DEFINIDO'}")
 logger.info(f"ADMIN_IDS: {ADMIN_IDS}")
 logger.info(f"GRUPO_PRINCIPAL_ID: {GRUPO_PRINCIPAL_ID}")
 logger.info(f"GRUPO_DUVIDAS_ID: {GRUPO_DUVIDAS_ID}")
 logger.info(f"TIMEZONE: {TIMEZONE}")
 logger.info(f"PORT: {PORT}")
+logger.info("="*60)
 
 # Flask app para webhook
 app = Flask(__name__)
@@ -1009,47 +1015,88 @@ def main():
     
     # Configura jobs diários para mensagens automáticas
     job_queue = application.job_queue
+    logger.info("Iniciando configuração dos jobs...")
     
-    # Mensagem matinal (7:00 AM)
-    job_queue.run_daily(
-        daily_morning_job,
-        time=time(7, 0, 0, tzinfo=TIMEZONE),
-        name="daily_morning_message"
-    )
-    logger.info("Job agendado: Mensagem matinal às 7:00 AM")
+    try:
+        # Mensagem matinal (7:00 AM)
+        logger.info("Agendando job: daily_morning_message...")
+        job_queue.run_daily(
+            daily_morning_job,
+            time=time(7, 0, 0, tzinfo=TIMEZONE),
+            name="daily_morning_message"
+        )
+        logger.info("✅ Job agendado: Mensagem matinal às 7:00 AM")
+        
+        # Primeira mensagem motivacional (14:00 PM - 2:00 PM)
+        logger.info("Agendando job: daily_afternoon_motivational...")
+        job_queue.run_daily(
+            daily_afternoon_motivational_job,
+            time=time(14, 0, 0, tzinfo=TIMEZONE),
+            name="daily_afternoon_motivational"
+        )
+        logger.info("✅ Job agendado: Primeira mensagem motivacional às 14:00 PM")
+        
+        # Segunda mensagem motivacional (20:00 PM - 8:00 PM)
+        logger.info("Agendando job: daily_evening_motivational...")
+        job_queue.run_daily(
+            daily_evening_motivational_job,
+            time=time(20, 0, 0, tzinfo=TIMEZONE),
+            name="daily_evening_motivational"
+        )
+        logger.info("✅ Job agendado: Segunda mensagem motivacional às 20:00 PM")
+        
+        # Jobs do pregão (segunda a sexta-feira)
+        logger.info("Agendando job: market_open_message...")
+        job_queue.run_daily(
+            market_open_job,
+            time=time(10, 0, 0, tzinfo=TIMEZONE),
+            days=(0, 1, 2, 3, 4),
+            name="market_open_message"
+        )
+        logger.info("✅ Job agendado: Abertura do pregão às 10:00 AM (segunda a sexta)")
+        
+        logger.info("Agendando job: market_close_message...")
+        job_queue.run_daily(
+            market_close_job,
+            time=time(17, 0, 0, tzinfo=TIMEZONE),
+            days=(0, 1, 2, 3, 4),
+            name="market_close_message"
+        )
+        logger.info("✅ Job agendado: Fechamento do pregão às 17:00 PM (segunda a sexta)")
+        
+        logger.info("🎯 Todos os 5 jobs foram agendados com sucesso!")
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao agendar jobs: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
     
-    # Primeira mensagem motivacional (14:00 PM - 2:00 PM)
-    job_queue.run_daily(
-        daily_afternoon_motivational_job,
-        time=time(14, 0, 0, tzinfo=TIMEZONE),
-        name="daily_afternoon_motivational"
-    )
-    logger.info("Job agendado: Primeira mensagem motivacional às 14:00 PM")
+    # Verifica e envia mensagens perdidas após reinicialização
+    async def check_missed_messages():
+        """Verifica e envia mensagens que deveriam ter sido enviadas"""
+        try:
+            logger.info("🔍 Verificando mensagens perdidas...")
+            checker = MissedMessagesChecker(BOT_TOKEN, GRUPO_PRINCIPAL_ID, TIMEZONE)
+            results = await checker.check_and_send_missed_messages()
+            
+            if results['sent'] > 0 or results['failed'] > 0:
+                logger.info(f"📊 Relatório de mensagens perdidas:")
+                logger.info(f"   ✅ Enviadas: {results['sent']}")
+                logger.info(f"   ❌ Falhas: {results['failed']}")
+                logger.info(f"   ⏭️ Puladas: {results['skipped']}")
+            else:
+                logger.info("✅ Nenhuma mensagem perdida encontrada")
+                
+        except Exception as e:
+            logger.error(f"❌ Erro ao verificar mensagens perdidas: {e}")
     
-    # Segunda mensagem motivacional (20:00 PM - 8:00 PM)
-    job_queue.run_daily(
-        daily_evening_motivational_job,
-        time=time(20, 0, 0, tzinfo=TIMEZONE),
-        name="daily_evening_motivational"
+    # Agenda verificação de mensagens perdidas para executar após 10 segundos
+    job_queue.run_once(
+        lambda context: context.application.create_task(check_missed_messages()),
+        when=10,
+        name="check_missed_messages_startup"
     )
-    logger.info("Job agendado: Segunda mensagem motivacional às 20:00 PM")
-    
-    # Jobs do pregão (segunda a sexta-feira)
-    job_queue.run_daily(
-        market_open_job,
-        time=time(10, 0, 0, tzinfo=TIMEZONE),
-        days=(0, 1, 2, 3, 4),
-        name="market_open_message"
-    )
-    logger.info("Job agendado: Abertura do pregão às 10:00 AM (segunda a sexta)")
-    
-    job_queue.run_daily(
-        market_close_job,
-        time=time(17, 0, 0, tzinfo=TIMEZONE),
-        days=(0, 1, 2, 3, 4),
-        name="market_close_message"
-    )
-    logger.info("Job agendado: Fechamento do pregão às 17:00 PM (segunda a sexta)")
+    logger.info("⏰ Verificação de mensagens perdidas agendada para 10 segundos")
     
     # Handler para novos membros
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_member_handler))

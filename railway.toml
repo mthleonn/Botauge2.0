@@ -12,13 +12,6 @@ variables = { NODE_ENV = "production" }
 [environments.production.deploy]
 startCommand = "python bot.py"
 
-# Configurações de saúde do serviço
-[environments.production.healthcheck]
-path = "/health"
-interval = 30
-timeout = 10
-retries = 3
-
 # Configurações de recursos
 [environments.production.resources]
 memory = 512
